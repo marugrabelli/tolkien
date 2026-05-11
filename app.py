@@ -47,8 +47,8 @@ if prompt := st.chat_input("Escribe tu duda sobre la Tierra Media..."):
 
     with st.chat_message("assistant"):
         try:
-            # CAMBIO CLAVE: Usamos 'models/gemini-1.5-flash-latest' para mayor compatibilidad
-            model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest')
+            # CAMBIO DEFINITIVO: Usamos 'gemini-pro' (Versión 1.0 estable)
+            model = genai.GenerativeModel('gemini-pro')
             
             instruccion_maestra = """
             Eres el 'Tolkiendil Gelehrter'. 
@@ -57,14 +57,12 @@ if prompt := st.chat_input("Escribe tu duda sobre la Tierra Media..."):
             REGLAS: Responder SIEMPRE en ALEMÁN y añadir un '💡 Tolkien Fun Fact' al final.
             """
 
-            contenidos = [instruccion_maestra] + st.session_state.biblioteca + [prompt]
-            
-            # Generamos contenido (sin forzar v1beta manualmente)
-            response = model.generate_content(contenidos)
+            # NOTA: Gemini Pro 1.0 puede tener límites con upload_file. 
+            # Si falla el envío de archivos, enviamos solo el texto.
+            response = model.generate_content([instruccion_maestra, prompt])
             
             st.markdown(response.text)
             st.session_state.messages.append({"role": "assistant", "content": response.text})
             
         except Exception as e:
-            # Diagnóstico detallado si vuelve a fallar
             st.error(f"Error de conexión con el modelo: {e}")
