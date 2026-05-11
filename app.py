@@ -3,56 +3,65 @@ import google.generativeai as genai
 from pypdf import PdfReader
 import os
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Tolkien Expert AI", page_icon="🧙‍♂️")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Tolkien AI - Deutsch", layout="wide")
 
-# Validación de Key en Secrets
+# Validación de Key
 if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("⚠️ Configura GOOGLE_API_KEY en Settings > Secrets.")
+    st.error("⚠️ Falta la clave en Secrets.")
     st.stop()
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- MOTOR DE LECTURA DE BIBLIOTECA ---
-@st.cache_resource
-def procesar_biblioteca():
-    """Lee todos los PDF cargados por el admin en la carpeta conocimiento/"""
-    texto_acumulado = ""
+# --- LECTURA OPTIMIZADA (Caché persistente) ---
+@st.cache_data(show_spinner=False)
+def cargar_biblioteca_masiva():
+    texto_total = ""
     ruta_carpeta = "conocimiento"
+    if not os.path.exists(ruta_carpeta):
+        return ""
     
-    if os.path.exists(ruta_carpeta):
-        archivos = [f for f in os.listdir(ruta_carpeta) if f.endswith(".pdf")]
-        for archivo in archivos:
-            try:
-                reader = PdfReader(os.path.join(ruta_carpeta, archivo))
-                for page in reader.pages:
-                    texto_acumulado += page.extract_text() + "\n"
-            except Exception as e:
-                st.warning(f"Error con {archivo}: {e}")
-    return texto_acumulado
+    archivos = [f for f in os.listdir(ruta_carpeta) if f.endswith(".pdf")]
+    
+    # Barra de progreso para grandes volúmenes
+    progreso = st.progress(0)
+    for i, archivo in enumerate(archivos):
+        try:
+            reader = PdfReader(os.path.join(ruta_carpeta, archivo))
+            for page in reader.pages:
+                # Extraemos solo texto esencial para ahorrar memoria
+                content = page.extract_text()
+                if content:
+                    texto_total += content + " "
+        except Exception as e:
+            print(f"Error en {archivo}: {e}")
+        
+        progreso.progress((i + 1) / len(archivos))
+    
+    return texto_total
 
 # --- INTERFAZ ---
-st.title("🧙‍♂️ Tolkien Knowledge Agent")
-st.info("Agente experto basado en los libros oficiales (Responde en Alemán).")
+st.title("🧙‍♂️ Agent Tolkien (Respuesta en Alemán)")
 
-# Carga de datos (Se hace una sola vez al arrancar)
-with st.spinner("Sincronizando biblioteca del administrador..."):
-    datos_libros = procesar_biblioteca()
+# Carga de datos con caché para que solo "le cueste" la primera vez
+if "conocimiento" not in st.session_state:
+    with st.spinner("Procesando gran volumen de datos... Esto solo ocurre una vez."):
+        st.session_state.conocimiento = cargar_biblioteca_masiva()
 
-if not datos_libros:
-    st.error("⚠️ No hay libros cargados en la carpeta /conocimiento de GitHub.")
+if not st.session_state.conocimiento:
+    st.warning("Carpeta /conocimiento vacía.")
     st.stop()
 
+# Historial de Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Historial
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-# Entrada
-if prompt := st.chat_input("¿Qué deseas consultar?"):
+# --- LÓGICA DEL CHAT ---
+if prompt := st.chat_input("Pregunta en español, responderé en alemán..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -61,21 +70,20 @@ if prompt := st.chat_input("¿Qué deseas consultar?"):
         try:
             model = genai.GenerativeModel('gemini-1.5-flash')
             
-            # Instrucción maestra: Datos en español -> Respuesta en Alemán
+            # Contexto limitado para evitar errores de saturación (Tokens)
+            # Usamos los primeros 30k caracteres como base de conocimiento relevante
             contexto_ia = f"""
-            Eres un experto en Tolkien. 
-            DATOS DE LOS LIBROS: {datos_libros[:30000]}
+            Eres un experto en el universo de J.R.R. Tolkien.
+            BASE DE CONOCIMIENTO (Libros): {st.session_state.conocimiento[:30000]}
             
-            REGLAS:
-            1. Responde ÚNICAMENTE en idioma ALEMÁN (DEUTSCH).
-            2. Usa los datos proporcionados para ser preciso.
-            3. Si no sabes algo, dilo en alemán.
-            
-            Pregunta: {prompt}
+            INSTRUCCIÓN:
+            1. Analiza la pregunta del usuario basándote en los libros.
+            2. DEBES RESPONDER SIEMPRE EN ALEMÁN (DEUTSCH).
+            3. Si la respuesta no está en el texto, usa tu conocimiento general de Tolkien pero mantén el idioma alemán.
             """
             
-            response = model.generate_content(contexto_ia)
+            response = model.generate_content([contexto_ia, prompt])
             st.markdown(response.text)
             st.session_state.messages.append({"role": "assistant", "content": response.text})
         except Exception as e:
-            st.error(f"Error en la IA: {e}")
+            st.error(f"Error: {e}")
