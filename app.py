@@ -1,7 +1,13 @@
-import streamlit as st
+iimport streamlit as st
 import os
+import subprocess
+import sys
 
-# --- COMPROBACIÓN DE SISTEMA ---
+# --- SOLUCIÓN TÉCNICA DE EMERGENCIA ---
+# Si Streamlit falla en leer el requirements.txt, este bloque fuerza la instalación.
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
 try:
     import langchain
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
@@ -11,15 +17,19 @@ try:
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
 except ImportError:
-    st.error("❌ El servidor de Streamlit no instaló las librerías.")
-    st.info("💡 **Solución:** Borra la app del dashboard de Streamlit y vuelve a crearla. Asegúrate de que 'requirements.txt' esté en el nivel principal del repositorio.")
-    st.stop()
+    with st.spinner("🔧 Configurando entorno de IA por primera vez..."):
+        install_package("langchain")
+        install_package("langchain-google-genai")
+        install_package("langchain-community")
+        install_package("faiss-cpu")
+        install_package("PyPDF2")
+        st.rerun()
 
 import google.generativeai as genai
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Tolkien Hybrid Expert", page_icon="🧙‍♂️")
-st.title("🧙‍♂️ Tolkiendil Hybrid-Assistent")
+st.title("🧙‍♂️ Tolkiendil Hybrid-Asistent")
 
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
@@ -28,9 +38,9 @@ else:
     st.error("⚠️ Configura la GOOGLE_API_KEY en los Secrets.")
     st.stop()
 
-# --- MOTOR RAG HÍBRIDO ---
+# --- MOTOR HÍBRIDO RAG ---
 @st.cache_resource
-def setup_engine():
+def configurar_agente():
     path = "./conocimiento/"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -51,19 +61,17 @@ def setup_engine():
 
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
 
-    # Prompt Maestro en Alemán
+    # Prompt Maestro en Alemán (Híbrido)
     template = """
-    Du bist ein spezialisierter KI-Experte für das Werk von J.R.R. Tolkien.
-    Deine Aufgabe ist es, Fragen präzise und AUSSCHLIESSLICH AUF DEUTSCH zu beantworten.
-    
+    Du bist ein Experte für J.R.R. Tolkien. Antworte IMMER auf DEUTSCH.
     KONTEXT AUS DOKUMENTEN: {context}
     BENUTZERFRAGE: {question}
     
     REGELN:
     1. Antworte IMMER auf DEUTSCH.
-    2. Nutze primär den KONTEXT und nenne die Datei.
+    2. Priorisiere den KONTEXT und nenne die Datei.
     3. Falls nicht im Kontext, nutze dein Wissen auf Deutsch.
-    4. Beende mit: '💡 Tolkien Fun Fact' (Deutsch).
+    4. Ende: '💡 Tolkien Fun Fact' (Deutsch).
     """
     
     QA_PROMPT = PromptTemplate(template=template, input_variables=["context", "question"])
@@ -74,7 +82,7 @@ def setup_engine():
         )
     return llm
 
-agente = setup_engine()
+agente = configurar_agente()
 
 # --- INTERFAZ ---
 if "messages" not in st.session_state:
