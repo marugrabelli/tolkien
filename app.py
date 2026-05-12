@@ -1,50 +1,37 @@
 import streamlit as st
 import os
-import sys
-import subprocess
+import google.generativeai as genai
 
-# --- CONFIGURACIÓN DE PÁGINA (Siempre primero) ---
-st.set_page_config(page_title="Tolkien Expert", page_icon="🧙‍♂️")
-st.title("🧙‍♂️ Tolkiendil Assistent")
-
-# --- FUNCIÓN DE INSTALACIÓN DINÁMICA ---
-def instalar_paquetes():
-    with st.spinner("Instalando dependencias en el servidor..."):
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", 
-                "langchain", "langchain-google-genai", "langchain-community", "faiss-cpu", "PyPDF2"])
-            st.success("✅ Instalación completada. Reiniciando...")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error al instalar: {e}")
-
-# --- BLOQUE DE IMPORTACIÓN PROTEGIDO ---
+# --- IMPORTACIONES PROTEGIDAS ---
 try:
-    import google.generativeai as genai
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
     from langchain_community.vectorstores import FAISS
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
-except ImportError:
-    st.warning("⚠️ El servidor de Streamlit no ha reconocido las librerías del archivo requirements.txt.")
-    if st.button("Forzar instalación manual ahora"):
-        instalar_paquetes()
+except ImportError as e:
+    st.error(f"Falta la librería: {e.name}")
+    st.info("Por favor, haz un 'Reboot App' en el menú de Streamlit.")
     st.stop()
 
-# --- LÓGICA DE NEGOCIO ---
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Tolkien Assistent", page_icon="🧙‍♂️")
+st.title("🧙‍♂️ Tolkiendil Expert")
+
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Configura GOOGLE_API_KEY en los Secrets.")
+    st.error("Configura GOOGLE_API_KEY en Secrets.")
     st.stop()
 
+# --- MOTOR RAG HÍBRIDO ---
 @st.cache_resource
 def setup_engine():
     path = "./conocimiento/"
-    if not os.path.exists(path): os.makedirs(path)
+    if not os.path.exists(path):
+        os.makedirs(path)
     
     loader = DirectoryLoader(path, glob="./*.pdf", loader_cls=PyPDFLoader)
     docs = loader.load()
@@ -55,20 +42,18 @@ def setup_engine():
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
         vectorstore = FAISS.from_documents(splits, embeddings)
         
+        template = "Antworte immer auf DEUTSCH. Kontext: {context} Frage: {question}"
         return RetrievalQA.from_chain_type(
             llm=ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3),
             retriever=vectorstore.as_retriever(),
-            chain_type_kwargs={"prompt": PromptTemplate(
-                template="Antworte immer auf DEUTSCH. Kontext: {context} Frage: {question}",
-                input_variables=["context", "question"]
-            )},
+            chain_type_kwargs={"prompt": PromptTemplate(template=template, input_variables=["context", "question"])},
             return_source_documents=True
         )
     return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
 
 agente = setup_engine()
 
-# --- CHAT UI ---
+# --- INTERFAZ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -76,7 +61,7 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-if prompt := st.chat_input("Hacer una pregunta..."):
+if prompt := st.chat_input("Schreiben Sie hier..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
