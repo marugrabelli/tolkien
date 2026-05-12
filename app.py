@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import google.generativeai as genai
 
-# --- VALIDACIÓN DE DEPENDENCIAS ---
+# --- VALIDACIÓN TÉCNICA ---
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
     from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -11,57 +11,54 @@ try:
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
 except ImportError as e:
-    st.error(f"❌ Módulo no encontrado: {e.name}")
-    st.info("Asegúrate de que 'requirements.txt' esté en la raíz de tu GitHub y haz un Reboot.")
+    st.error(f"❌ Error de Sistema: No se reconoce el módulo '{e.name}'.")
+    st.info("💡 Como tu archivo es correcto, ve a 'Manage App' en Streamlit y selecciona 'Reboot App' para forzar la instalación.")
     st.stop()
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Tolkien Hybrid Agent", page_icon="🧙‍♂️")
+st.set_page_config(page_title="Tolkien Hybrid Expert", page_icon="🧙‍♂️")
 st.title("🧙‍♂️ Tolkiendil Hybrid-Assistent")
 
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Falta API Key en Secrets.")
+    st.error("⚠️ Configura la GOOGLE_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-# --- MOTOR RAG HÍBRIDO ---
+# --- MOTOR HÍBRIDO ---
 @st.cache_resource
-def setup_engine():
+def inicializar_motor():
     path = "./conocimiento/"
     if not os.path.exists(path):
         os.makedirs(path)
     
-    # Carga archivos PDF
     loader = DirectoryLoader(path, glob="./*.pdf", loader_cls=PyPDFLoader)
     docs = loader.load()
     
-    # Fragmentación (Chunking) estratégica para literatura de Tolkien
+    # Fragmentación (Paso 1: Chunking)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     
     if docs:
         fragmentos = text_splitter.split_documents(docs)
-        # Embeddings específicos de Google
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
         vectorstore = FAISS.from_documents(fragmentos, embeddings)
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     else:
         retriever = None
 
-    # Modelo Gemini
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
 
-    # Prompt Maestro en Alemán
+    # Prompt Maestro: Híbrido y Alemán Estricto
     template = """
-    Du bist ein Experte für J.R.R. Tolkien. 
+    Du bist ein spezialisierter Experte für J.R.R. Tolkien.
     Antworte IMMER auf DEUTSCH.
     
-    KONTEXT: {context}
-    FRAGE: {question}
+    KONTEXT AUS DOKUMENTEN: {context}
+    BENUTZERFRAGE: {question}
     
-    ANWEISUNGEN:
-    1. Nutze den KONTEXT, falls vorhanden, und nenne die Datei.
+    REGELN:
+    1. Nutze den KONTEXT y nenne die Datei.
     2. Wenn nicht im Kontext, nutze dein Wissen auf Deutsch.
     3. Ende: '💡 Tolkien Fun Fact' (Deutsch).
     """
@@ -77,7 +74,7 @@ def setup_engine():
         )
     return llm
 
-agente = setup_engine()
+agente = inicializar_motor()
 
 # --- CHAT ---
 if "messages" not in st.session_state:
@@ -87,24 +84,25 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-if prompt := st.chat_input("Ihre Frage..."):
+if prompt := st.chat_input("Schreiben Sie hier..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        if isinstance(agente, RetrievalQA):
-            res = agente({"query": prompt})
-            respuesta = res["result"]
-            fuentes = res["source_documents"]
-        else:
-            respuesta = agente.invoke(f"Antworte auf Deutsch: {prompt}").content
-            fuentes = []
-        
-        st.markdown(respuesta)
-        if fuentes:
-            with st.expander("Quellen"):
-                for d in fuentes:
-                    st.caption(f"Datei: {d.metadata.get('source')}")
-        
-        st.session_state.messages.append({"role": "assistant", "content": respuesta})
+        with st.spinner("Analyse..."):
+            if isinstance(agente, RetrievalQA):
+                res = agente({"query": prompt})
+                respuesta = res["result"]
+                fuentes = res["source_documents"]
+            else:
+                respuesta = agente.invoke(f"Antworte auf Deutsch: {prompt}").content
+                fuentes = []
+
+            st.markdown(respuesta)
+            if fuentes:
+                with st.expander("Quellen"):
+                    for d in fuentes:
+                        st.caption(f"Datei: {d.metadata.get('source')}")
+            
+            st.session_state.messages.append({"role": "assistant", "content": respuesta})
