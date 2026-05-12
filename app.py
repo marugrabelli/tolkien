@@ -1,19 +1,21 @@
 import streamlit as st
 import os
-import google.generativeai as genai
 
-# --- VALIDACIÓN TÉCNICA ---
+# --- COMPROBACIÓN DE SISTEMA ---
 try:
+    import langchain
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
     from langchain_community.vectorstores import FAISS
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
-except ImportError as e:
-    st.error(f"❌ Error de Sistema: No se reconoce el módulo '{e.name}'.")
-    st.info("💡 Como tu archivo es correcto, ve a 'Manage App' en Streamlit y selecciona 'Reboot App' para forzar la instalación.")
+except ImportError:
+    st.error("❌ El servidor de Streamlit no instaló las librerías.")
+    st.info("💡 **Solución:** Borra la app del dashboard de Streamlit y vuelve a crearla. Asegúrate de que 'requirements.txt' esté en el nivel principal del repositorio.")
     st.stop()
+
+import google.generativeai as genai
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Tolkien Hybrid Expert", page_icon="🧙‍♂️")
@@ -23,12 +25,12 @@ if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Configura la GOOGLE_API_KEY en los Secrets de Streamlit.")
+    st.error("⚠️ Configura la GOOGLE_API_KEY en los Secrets.")
     st.stop()
 
-# --- MOTOR HÍBRIDO ---
+# --- MOTOR RAG HÍBRIDO ---
 @st.cache_resource
-def inicializar_motor():
+def setup_engine():
     path = "./conocimiento/"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -49,34 +51,32 @@ def inicializar_motor():
 
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
 
-    # Prompt Maestro: Híbrido y Alemán Estricto
+    # Prompt Maestro en Alemán
     template = """
-    Du bist ein spezialisierter Experte für J.R.R. Tolkien.
-    Antworte IMMER auf DEUTSCH.
+    Du bist ein spezialisierter KI-Experte für das Werk von J.R.R. Tolkien.
+    Deine Aufgabe ist es, Fragen präzise und AUSSCHLIESSLICH AUF DEUTSCH zu beantworten.
     
     KONTEXT AUS DOKUMENTEN: {context}
     BENUTZERFRAGE: {question}
     
     REGELN:
-    1. Nutze den KONTEXT y nenne die Datei.
-    2. Wenn nicht im Kontext, nutze dein Wissen auf Deutsch.
-    3. Ende: '💡 Tolkien Fun Fact' (Deutsch).
+    1. Antworte IMMER auf DEUTSCH.
+    2. Nutze primär den KONTEXT und nenne die Datei.
+    3. Falls nicht im Kontext, nutze dein Wissen auf Deutsch.
+    4. Beende mit: '💡 Tolkien Fun Fact' (Deutsch).
     """
     
     QA_PROMPT = PromptTemplate(template=template, input_variables=["context", "question"])
 
     if retriever:
         return RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=retriever,
-            chain_type_kwargs={"prompt": QA_PROMPT},
-            return_source_documents=True
+            llm=llm, retriever=retriever, chain_type_kwargs={"prompt": QA_PROMPT}, return_source_documents=True
         )
     return llm
 
-agente = inicializar_motor()
+agente = setup_engine()
 
-# --- CHAT ---
+# --- INTERFAZ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -84,7 +84,7 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-if prompt := st.chat_input("Schreiben Sie hier..."):
+if prompt := st.chat_input("Ihre Frage..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -102,7 +102,7 @@ if prompt := st.chat_input("Schreiben Sie hier..."):
             st.markdown(respuesta)
             if fuentes:
                 with st.expander("Quellen"):
-                    for d in fuentes:
-                        st.caption(f"Datei: {d.metadata.get('source')}")
+                    for doc in fuentes:
+                        st.caption(f"Datei: {doc.metadata.get('source')}")
             
             st.session_state.messages.append({"role": "assistant", "content": respuesta})
