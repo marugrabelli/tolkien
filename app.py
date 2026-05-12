@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import google.generativeai as genai
 
-# Importaciones protegidas
+# --- VALIDACIÓN DE DEPENDENCIAS ---
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
     from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -10,8 +10,9 @@ try:
     from langchain_community.vectorstores import FAISS
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
-except ImportError:
-    st.error("⚠️ Error: LangChain no está instalado. Verifica que 'requirements.txt' esté en la raíz de tu GitHub.")
+except ImportError as e:
+    st.error(f"❌ Módulo no encontrado: {e.name}")
+    st.info("Asegúrate de que 'requirements.txt' esté en la raíz de tu GitHub y haz un Reboot.")
     st.stop()
 
 # --- CONFIGURACIÓN ---
@@ -22,7 +23,7 @@ if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Falta GOOGLE_API_KEY en Secrets.")
+    st.error("⚠️ Falta API Key en Secrets.")
     st.stop()
 
 # --- MOTOR RAG HÍBRIDO ---
@@ -32,29 +33,35 @@ def setup_engine():
     if not os.path.exists(path):
         os.makedirs(path)
     
+    # Carga archivos PDF
     loader = DirectoryLoader(path, glob="./*.pdf", loader_cls=PyPDFLoader)
     docs = loader.load()
     
-    # Fragmentación (Chunking) para análisis semántico
+    # Fragmentación (Chunking) estratégica para literatura de Tolkien
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     
     if docs:
         fragmentos = text_splitter.split_documents(docs)
+        # Embeddings específicos de Google
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
         vectorstore = FAISS.from_documents(fragmentos, embeddings)
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     else:
         retriever = None
 
+    # Modelo Gemini
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
 
+    # Prompt Maestro en Alemán
     template = """
-    Du bist ein Experte für J.R.R. Tolkien. Antworte IMMER auf DEUTSCH.
+    Du bist ein Experte für J.R.R. Tolkien. 
+    Antworte IMMER auf DEUTSCH.
+    
     KONTEXT: {context}
     FRAGE: {question}
     
     ANWEISUNGEN:
-    1. Nutze den KONTEXT, falls vorhanden.
+    1. Nutze den KONTEXT, falls vorhanden, und nenne die Datei.
     2. Wenn nicht im Kontext, nutze dein Wissen auf Deutsch.
     3. Ende: '💡 Tolkien Fun Fact' (Deutsch).
     """
@@ -89,12 +96,15 @@ if prompt := st.chat_input("Ihre Frage..."):
         if isinstance(agente, RetrievalQA):
             res = agente({"query": prompt})
             respuesta = res["result"]
-            if res["source_documents"]:
-                with st.expander("Quellen"):
-                    for d in res["source_documents"]:
-                        st.caption(f"Datei: {d.metadata.get('source')}")
+            fuentes = res["source_documents"]
         else:
             respuesta = agente.invoke(f"Antworte auf Deutsch: {prompt}").content
+            fuentes = []
         
         st.markdown(respuesta)
+        if fuentes:
+            with st.expander("Quellen"):
+                for d in fuentes:
+                    st.caption(f"Datei: {d.metadata.get('source')}")
+        
         st.session_state.messages.append({"role": "assistant", "content": respuesta})
