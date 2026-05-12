@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import google.generativeai as genai
 
-# Importaciones corregidas y validadas para evitar el error de la línea 6
+# Importaciones protegidas
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
     from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -10,61 +10,53 @@ try:
     from langchain_community.vectorstores import FAISS
     from langchain.chains import RetrievalQA
     from langchain.prompts import PromptTemplate
-except ImportError as e:
-    st.error(f"Instalación incompleta: {e}. Revisa tu archivo requirements.txt")
+except ImportError:
+    st.error("⚠️ Error: LangChain no está instalado. Verifica que 'requirements.txt' esté en la raíz de tu GitHub.")
     st.stop()
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Tolkien Hybrid Agent", page_icon="🧙‍♂️")
 st.title("🧙‍♂️ Tolkiendil Hybrid-Assistent")
 
-# --- SEGURIDAD ---
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Configura la GOOGLE_API_KEY en los Secrets de Streamlit.")
+    st.error("⚠️ Falta GOOGLE_API_KEY en Secrets.")
     st.stop()
 
-# --- MOTOR HÍBRIDO (RAG + LLM) ---
+# --- MOTOR RAG HÍBRIDO ---
 @st.cache_resource
-def inicializar_motor():
+def setup_engine():
     path = "./conocimiento/"
     if not os.path.exists(path):
         os.makedirs(path)
     
-    # Carga de documentos (PDF)
     loader = DirectoryLoader(path, glob="./*.pdf", loader_cls=PyPDFLoader)
     docs = loader.load()
     
-    # 1. Fragmentación (Chunking) - Crucial para el análisis funcional
+    # Fragmentación (Chunking) para análisis semántico
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     
     if docs:
         fragmentos = text_splitter.split_documents(docs)
-        # 2. Embeddings y Base de Datos Vectorial
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
         vectorstore = FAISS.from_documents(fragmentos, embeddings)
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     else:
         retriever = None
 
-    # 3. Configuración de Gemini 1.5 Flash
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
 
-    # Prompt Maestro en Alemán para comportamiento híbrido
     template = """
-    Du bist ein hochspezialisierter KI-Experte für das Werk von J.R.R. Tolkien.
-    Deine Aufgabe ist es, Fragen präzise und AUSSCHLIESSLICH AUF DEUTSCH zu beantworten.
+    Du bist ein Experte für J.R.R. Tolkien. Antworte IMMER auf DEUTSCH.
+    KONTEXT: {context}
+    FRAGE: {question}
     
-    KONTEXT AUS DOKUMENTEN: {context}
-    BENUTZERFRAGE: {question}
-    
-    REGELN:
-    1. Antworte IMMER auf DEUTSCH.
-    2. Nutze primär den KONTEXT y nenne die Datei.
-    3. Falls die Info nicht im Kontext steht, nutze dein allgemeines Wissen auf Deutsch.
-    4. Beende jede Antwort mit einem '💡 Tolkien Fun Fact' auf Deutsch.
+    ANWEISUNGEN:
+    1. Nutze den KONTEXT, falls vorhanden.
+    2. Wenn nicht im Kontext, nutze dein Wissen auf Deutsch.
+    3. Ende: '💡 Tolkien Fun Fact' (Deutsch).
     """
     
     QA_PROMPT = PromptTemplate(template=template, input_variables=["context", "question"])
@@ -72,17 +64,15 @@ def inicializar_motor():
     if retriever:
         return RetrievalQA.from_chain_type(
             llm=llm,
-            chain_type="stuff",
             retriever=retriever,
             chain_type_kwargs={"prompt": QA_PROMPT},
             return_source_documents=True
         )
-    else:
-        return llm
+    return llm
 
-agente = inicializar_motor()
+agente = setup_engine()
 
-# --- INTERFAZ DE CHAT ---
+# --- CHAT ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -90,26 +80,21 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-if prompt := st.chat_input("Ihre Frage an den Gelehrten..."):
+if prompt := st.chat_input("Ihre Frage..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Suche in den Archiven..."):
-            if isinstance(agente, RetrievalQA):
-                res = agente({"query": prompt})
-                respuesta = res["result"]
-                fuentes = res["source_documents"]
-            else:
-                # Fallback solo IA
-                respuesta = agente.invoke(f"Antworte auf Deutsch: {prompt}").content
-                fuentes = []
-
-            st.markdown(respuesta)
-            if fuentes:
+        if isinstance(agente, RetrievalQA):
+            res = agente({"query": prompt})
+            respuesta = res["result"]
+            if res["source_documents"]:
                 with st.expander("Quellen"):
-                    for doc in fuentes:
-                        st.caption(f"Datei: {doc.metadata.get('source')}")
-            
-            st.session_state.messages.append({"role": "assistant", "content": respuesta})
+                    for d in res["source_documents"]:
+                        st.caption(f"Datei: {d.metadata.get('source')}")
+        else:
+            respuesta = agente.invoke(f"Antworte auf Deutsch: {prompt}").content
+        
+        st.markdown(respuesta)
+        st.session_state.messages.append({"role": "assistant", "content": respuesta})
