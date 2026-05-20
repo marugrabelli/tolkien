@@ -1,82 +1,121 @@
 import streamlit as st
 from google import genai
+import requests
 
-# Configuración de la página de Streamlit
-st.set_page_config(page_title="Tolkien Chatbot", page_icon="🧝‍♂️", layout="centered")
-st.title("LOTR 🧝‍♂️")
-st.subheader("Chatbot für Dr. Rulitos")
+# 1. Configuración de la interfaz de Streamlit
+st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layout="centered")
+st.title("LOTR 🗺️")
+st.subheader("Análisis Avanzado & Asistencia en el Legendarium")
 
-# Leer la API Key desde los Secrets de Streamlit
-# Nota: Asegurate de que en Secrets esté escrito exactamente como: GEMINI_API_KEY = "tu_clave"
+# 2. Gestión de Credenciales Seguras
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
-elif "Gemini_API_key" in st.secrets:
-    api_key = st.secrets["Gemini_API_key"]
 else:
     api_key = st.sidebar.text_input("Ingresa tu Gemini API Key:", type="password")
 
+# URL de Webhook simulado para simular el envío a Make/Zapier (reemplazar con una URL real si se desea)
+MAKE_WEBHOOK_URL = st.secrets.get("MAKE_WEBHOOK_URL", "https://hooks.make.com/simulado")
+
+# 3. Prompt del Sistema (Core de Conocimiento Fijo)
 SYSTEM_PROMPT = """
-Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial hiper-especializado en el Legendarium y la vida de J.R.R. Tolkien. Tu propósito es responder con precisión académica basándote estrictamente en el canon literario, debates de foros de fanáticos y datos biográficos del autor.
+Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el Legendarium. 
 
-### 1. REGLA ESTRICTA DE IDIOMA Y SALUDO
+### REGLA ESTRICTA DE IDIOMA Y SALUDO
 - Debes responder SIEMPRE en idioma Alemán (Deutsch).
-- ÚNICAMENTE cambiarás el idioma de la respuesta si el usuario te lo pide de manera explícita (por ejemplo: "responde en español" o "write in English"). Si el usuario te pregunta en español, inglés u otro idioma sin pedir explícitamente el cambio, tú debes procesar la consulta pero responder en alemán.
-- Cada interacción debe comenzar obligatoriamente con la siguiente frase de saludo en alemán: "Mae govannen! Ich bin der Tolkien-Bot. Wie kann ich dir heute im Legendarium helfen?".
+- ÚNICAMENTE cambiarás el idioma si el usuario te lo pide explícitamente ("Responde en español").
+- Cada interacción DEBE comenzar con: "Mae govannen! Ich bin der Tolkien-Bot. Wie kann ich dir heute im Legendarium helfen?".
 
-### 2. ARQUITECTURA DE RESPUESTA (Estructura Mental)
-Cuando recibas una consulta, procesa la información bajo los siguientes tres pilares en alemán:
-- **Canon Literario (Prioridad Alta):** Basa tus respuestas en los textos publicados (El Silmarillion, El Señor de los Anillos, El Hobbit, Los Hijos de Húrin, la serie de Historia de la Tierra Media). Distingue claramente entre las versiones publicadas por Christopher Tolkien y los borradores.
-- **Lore de Comunidad/Foros (Contexto Cultural):** Integra teorías populares, debates históricos de foros (como Elfenomeno, Council of Elrond, Plaza de las Letras) y aclaraciones sobre malentendidos comunes (ej. el debate sobre las alas de los Balrogs o la naturaleza de Tom Bombadil).
-- **Factor Tolkien (Fun Facts):** Siempre que la temática lo permita de forma natural, añade un dato curioso, lingüístico o biográfico de Tolkien (ej. su filiación por los árboles, su proceso de creación de lenguas antes que de mitologías, o sus cartas a los fans).
-
-### 3. REGLAS DE TONO Y ESTILO
-- **Tono:** Erudito pero accesible, apasionado por la filología y el detalle.
-- **Manejo de Adaptaciones:** Si el usuario pregunta por las adaptaciones cinematográficas (Peter Jackson, Ring of Power), aclara brevemente la diferencia con el texto escrito, priorizando siempre la visión de Tolkien.
-- **Formato:** Usa negritas para nombres propios o conceptos en Quenya/Sindarin y viñetas para estructurar respuestas complejas.
-- **Glosario:** Utiliza los nombres de los lugares y personajes según la traducción oficial al alemán (ej. "Bruchtal" para Rivendell, "Beutelsend" para Bag End, "Streuner" para Strider) a menos que el usuario haya solicitado explícitamente otro idioma.
-
-### 4. RESTRICCIONES (Guardrails)
-- Si una pregunta no tiene respuesta en el canon ni en los escritos del autor, admítelo abiertamente argumentando la falta de registros en las Crónicas de la Tierra Media. No inventes hechos ("hallucinations").
-- Ante ambigüedades, expone las diferentes corrientes de opinión de los foros académicos.
+### ARQUITECTURA DE RESPUESTA
+- Canon Literario: Basado en libros (Silmarillion, LOTR, Historia de la Tierra Media).
+- Foros/Comunidad: Menciona debates sobre temas ambiguos.
+- Fun Fact: Añade siempre un dato biográfico o lingüístico al final.
 """
 
-if api_key:
+# 4. Inicialización del Estado de la Aplicación
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "human_takeover" not in st.session_state:
+    st.session_state.human_takeover = False
+
+# 5. Función de Alerta: Human-in-the-Loop (HITL)
+def trigger_human_intervention(user_text, context_history):
+    """Envía una alerta externa por Webhook simulando una notificación a WhatsApp/Email"""
+    payload = {
+        "alert_type": "HUMAN_INTERVENTION_REQUIRED",
+        "trigger_word": user_text,
+        "chat_snippet": context_history[-3:] if len(context_history) >= 3 else context_history
+    }
     try:
-        client = genai.Client(api_key=api_key)
+        # Petición asíncrona simulada hacia la herramienta de automatización
+        requests.post(MAKE_WEBHOOK_URL, json=payload, timeout=5)
+    except Exception:
+        pass # Evita romper la experiencia si el webhook de prueba no está activo
+
+# 6. Lógica de Ejecución del Chat
+if api_key:
+    client = genai.Client(api_key=api_key)
+
+    # Mostrar historial de conversación retenido en la sesión
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Si se activó el estado de intervención humana, bloqueamos el bot
+    if st.session_state.human_takeover:
+        st.warning("⚠️ Ein menschlicher Experte überprüft dieses Ticket. Die KI ist vorübergehend pausiert.")
+        st.info("💡 Un especialista del Legendarium ha sido notificado por WhatsApp/Email debido a la naturaleza de tu consulta. Te contactaremos a la brevedad.")
         
-        # Inicializar el historial de chat en la sesión si no existe
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        # Mostrar los mensajes anteriores del chat
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # Entrada del usuario
+        # Pestaña de administración simulada para demostrar cómo el humano interviene y guarda datos
+        with st.expander("🛠️ Panel de Operador Humano (Simulación de Soporte)"):
+            st.write("Como AI Engineer, aquí demostrás cómo el humano toma el control:")
+            human_response = st.text_area("Escribe la respuesta experta para el usuario:")
+            if st.button("Enviar respuesta y almacenar en Logs"):
+                if human_response:
+                    st.session_state.messages.append({"role": "assistant", "content": f"🧔 [Menschlicher Experte]: {human_response}"})
+                    # Restablecer el bot tras la intervención del operador
+                    st.session_state.human_takeover = False
+                    st.rerun()
+    else:
+        # Entrada estándar del usuario
         if user_input := st.chat_input("Frag mich etwas über Mittelerde..."):
             with st.chat_message("user"):
                 st.markdown(user_input)
             st.session_state.messages.append({"role": "user", "content": user_input})
 
-            # Generar respuesta de la IA
+            # --- EVALUACIÓN DE CRITERIOS HITL (Triggers) ---
+            # Definimos palabras clave de insatisfacción o solicitudes explícitas de asistencia humana
+            criterios_criticos = ["humano", "human", "mensch", "soporte", "error", "reclamación", "copyright", "malísimo"]
+            
+            if any(word in user_input.lower() for word in criterios_criticos):
+                st.session_state.human_takeover = True
+                # Disparar la automatización de notificación externa
+                trigger_human_intervention(user_input, [m["content"] for m in st.session_state.messages])
+                st.rerun()
+
+            # --- OPCIÓN 1: PROCESAMIENTO CON MEMORIA DE CONTEXTO REAL ---
             with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                
-                # Pasar la configuración directo en el método sin importar tipos adicionales
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=user_input,
-                    config={
-                        'system_instruction': SYSTEM_PROMPT,
-                        'temperature': 0.7
-                    }
-                )
-                full_response = response.text
-                message_placeholder.markdown(full_response)
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
-                
-    except Exception as e:
-        st.error(f"Error de configuración de cliente o API Key: {e}")
+                # Formatear todo el historial acumulado según las reglas estrictas del SDK de Gemini
+                historial_api = []
+                for msg in st.session_state.messages:
+                    api_role = "user" if msg["role"] == "user" else "model"
+                    historial_api.append({
+                        "role": api_role,
+                        "parts": [{"text": msg["content"]}]
+                    })
+
+                try:
+                    # Se envía la secuencia completa de la conversación a la API
+                    response = client.models.generate_content(
+                        model='gemini-1.5-flash',
+                        contents=historial_api,
+                        config={
+                            'system_instruction': SYSTEM_PROMPT,
+                            'temperature': 0.7
+                        }
+                    )
+                    st.markdown(response.text)
+                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+                except Exception as e:
+                    st.error("Der Dienst ist vorübergehend überlastet. Bitte versuchen Sie es gleich noch einmal.")
 else:
     st.info("Por favor, introduce tu API Key de Gemini para comenzar.")
