@@ -3,8 +3,8 @@ from google import genai
 
 # Configuración de la página de Streamlit
 st.set_page_config(page_title="Tolkien Chatbot", page_icon="🧝‍♂️", layout="centered")
-st.title("Tolkien AI Engineer Project 📚")
-st.subheader("Chatbot especializado en el Legendarium")
+st.title("LOTR 📚")
+st.subheader("Chatbot para Dr.Rulitos")
 
 # Leer la API Key desde los Secrets de Streamlit
 # Nota: Asegurate de que en Secrets esté escrito exactamente como: GEMINI_API_KEY = "tu_clave"
