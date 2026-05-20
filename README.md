@@ -135,4 +135,4 @@ MIT — libre para uso, modificación y distribución con atribución.
 
 ---
 
-*Desarrollado como MVP de demostración de capacidades en IA aplicada.*
+*Desarrollado como MVP .*
