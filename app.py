@@ -12,6 +12,18 @@ st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layou
 st.title("LOTR 🧙‍♂️")
 st.subheader("Chatbot für Dr. Rulitos")
 
+CSV_FILE_PATH = "consultas_criticas.csv"
+
+# --- MEJORA: COMPONENTE DE DESCARGA EN LA BARRA LATERAL ---
+if os.path.exists(CSV_FILE_PATH):
+    with open(CSV_FILE_PATH, "rb") as file:
+        st.sidebar.download_button(
+            label="📥 Descargar Base de Datos (CSV)",
+            data=file,
+            file_name="consultas_criticas.csv",
+            mime="text/csv"
+        )
+
 # Botón lateral para reiniciar la sesión de pruebas limpiamente
 if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.messages = []
@@ -29,7 +41,6 @@ else:
     api_key = st.sidebar.text_input("Ingresa tu Gemini API Key:", type="password")
 
 MAKE_WEBHOOK_URL = st.secrets.get("MAKE_WEBHOOK_URL", "")
-CSV_FILE_PATH = "consultas_criticas.csv"
 
 # 3. Prompt del Sistema
 SYSTEM_PROMPT = """
@@ -123,7 +134,6 @@ if api_key:
                 
                 if form_submit:
                     if form_nombre and form_correo and form_telefono:
-                        # Extraer todo el historial de strings acumulado hasta el momento
                         historial_completo = [m["content"] for m in st.session_state.messages]
                         
                         # Ejecutar persistencia en CSV y enviar Webhook en segundo plano
