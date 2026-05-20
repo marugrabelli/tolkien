@@ -14,6 +14,8 @@ st.subheader("Chatbot für Dr. Rulitos")
 if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.messages = []
     st.session_state.human_takeover = False
+    st.session_state.trigger_activated = False
+    st.session_state.last_trigger_word = ""
     st.rerun()
 
 # 2. Gestión de Credenciales Seguras
@@ -27,7 +29,7 @@ else:
 MAKE_WEBHOOK_URL = st.secrets.get("MAKE_WEBHOOK_URL", "")
 CSV_FILE_PATH = "consultas_criticas.csv"
 
-# 3. Prompt del Sistema (Core de Conocimiento Fijo)
+# 3. Prompt del Sistema
 SYSTEM_PROMPT = """
 Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el Legendarium. 
 
@@ -37,64 +39,45 @@ Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el
 - Cada interacción DEBE comenzar con: "Mae govannen! Ich bin der Tolkien-Bot. Wie kann ich dir heute im Legendarium helfen?".
 """
 
-# 4. Inicialización del Estado de la Aplicación (Memoria, HITL y Datos de Usuario)
+# 4. Inicialización del Estado de la Aplicación
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "human_takeover" not in st.session_state:
     st.session_state.human_takeover = False
-if "user_registered" not in st.session_state:
-    st.session_state.user_registered = False
+if "trigger_activated" not in st.session_state:
+    st.session_state.trigger_activated = False
+if "last_trigger_word" not in st.session_state:
+    st.session_state.last_trigger_word = ""
 
-# --- PASO NUEVO: FORMULARIO DE REGISTRO PARA EL MVP ---
-if not st.session_state.user_registered:
-    st.info("👋 Bitte registrieren Sie sich, um den Chat zu starten / Por favor, regístrate para iniciar el chat:")
-    with st.form("registro_usuario"):
-        nombre = st.text_input("Nombre Completo:")
-        correo = st.text_input("Correo Electrónico:")
-        telefono = st.text_input("Teléfono de Contacto:")
-        submit_btn = st.form_submit_with_button_coordinates("Ingresar al Chat")
-        
-        if submit_btn:
-            if nombre and correo and telefono:
-                st.session_state.user_name = nombre
-                st.session_state.user_email = correo
-                st.session_state.user_phone = telefono
-                st.session_state.user_registered = True
-                st.rerun()
-            else:
-                st.error("Todos los campos son obligatorios para poder asistirte en caso de soporte.")
-    st.stop() # Frena la ejecución hasta que se registre
-
-# 5. Función de Almacenamiento Local (CSV) y Alerta Externa (Webhook)
-def guardar_en_csv_y_alertar(user_text, context_history):
+# 5. Función de Procesamiento y Persistencia (CSV + Webhook)
+def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_history):
     hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # A) Estructurar los datos para la Base de Datos CSV
+    # A) Persistencia local en Base de Datos CSV
     nueva_fila = {
         "Fecha_Hora": [hora_actual],
-        "Nombre": [st.session_state.user_name],
-        "Correo": [st.session_state.user_email],
-        "Telefono": [st.session_state.user_phone],
-        "Palabra_Trigger": [user_text],
+        "Nombre": [nombre],
+        "Correo": [correo],
+        "Telefono": [telefono],
+        "Palabra_Trigger": [palabra_trigger],
         "Historial_Chat": [str(context_history[-3:])]
     }
     df_nuevo = pd.DataFrame(nueva_fila)
     
-    # Si el archivo ya existe, añade la fila; si no, lo crea con cabeceras
     if os.path.exists(CSV_FILE_PATH):
         df_nuevo.to_csv(CSV_FILE_PATH, mode='a', header=False, index=False)
     else:
         df_nuevo.to_csv(CSV_FILE_PATH, mode='w', header=True, index=False)
         
-    # B) Estructurar los datos enriquecidos para el Webhook de Make
+    # B) Envío de datos enriquecidos al Webhook de Make
     if MAKE_WEBHOOK_URL:
         payload = {
             "alert_type": "HUMAN_INTERVENTION_REQUIRED",
             "timestamp": hora_actual,
-            "user_name": st.session_state.user_name,
-            "user_email": st.session_state.user_email,
-            "user_phone": st.session_state.user_phone,
-            "trigger_word": user_text,
+            "user_name": nombre,
+            "user_email": correo,
+            "user_phone": telefono,
+            "trigger_word": palabra_trigger,
             "chat_snippet": context_history[-3:] if len(context_history) >= 3 else context_history
         }
         try:
@@ -107,37 +90,59 @@ if api_key:
     try:
         client = genai.Client(api_key=api_key)
 
+        # Renderizar historial activo en pantalla
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        # CONTROL DEL ESTADO HUMAN-IN-THE-LOOP
-        if st.session_state.human_takeover:
-            st.warning("⚠️ Ein menschlicher Experte überprüft dieses Ticket. Die KI ist vorübergehend pausiert.")
-            st.info(f"💡 Un especialista ha sido notificado. Nos contactaremos con vos a: {st.session_state.user_phone} o {st.session_state.user_email}.")
+        # FLUJO HITL ACTIVADO: Solicitud de datos por palabra crítica
+        if st.session_state.trigger_activated:
+            st.warning("⚠️ Ein menschlicher Experte wird benötigt / Se requiere un experto humano.")
             
+            # Formulario condicional: Solo aparece tras nombrar una palabra crítica
+            with st.form("formulario_contacto_urgente"):
+                st.write("Por favor, dejanos tus datos para que un especialista se contacte directamente contigo:")
+                form_nombre = st.text_input("Nombre Completo:")
+                form_correo = st.text_input("Correo Electrónico:")
+                form_telefono = st.text_input("Teléfono de Contacto:")
+                form_submit = st.form_submit_with_button_coordinates("Solicitar Asistencia Humana")
+                
+                if form_submit:
+                    if form_nombre and form_correo and form_telefono:
+                        # Guardar en CSV, enviar Webhook y pasar el control al operador humano
+                        procesar_alerta_hitl(form_nombre, form_correo, form_telefono, st.session_state.last_trigger_word, [m["content"] for m in st.session_state.messages])
+                        st.session_state.trigger_activated = False
+                        st.session_state.human_takeover = True
+                        st.rerun()
+                    else:
+                        st.error("Todos los campos son necesarios para procesar tu solicitud de soporte.")
+                        
+        # ESTADO: Esperando respuesta del operador humano desde la consola
+        elif st.session_state.human_takeover:
+            st.info("💡 Un especialista ha sido notificado por correo electrónico. La IA permanece pausada.")
             with st.expander("🛠️ Panel de Operador Humano (Resolución)", expanded=True):
-                human_response = st.text_area("Escribe la respuesta experta:")
+                human_response = st.text_area("Escribe la respuesta experta para el usuario:")
                 if st.button("Enviar respuesta y restablecer servicio"):
                     if human_response:
                         st.session_state.messages.append({"role": "assistant", "content": f"🧔 [Menschlicher Experte]: {human_response}"})
                         st.session_state.human_takeover = False
                         st.rerun()
+                        
+        # ESTADO NORMAL: Chat libre con la IA
         else:
             if user_input := st.chat_input("Frag mich etwas über Mittelerde..."):
                 with st.chat_message("user"):
                     st.markdown(user_input)
                 st.session_state.messages.append({"role": "user", "content": user_input})
 
-                # INTERCEPCIÓN PREVIA
+                # Validación predictiva de triggers críticos
                 criterios_criticos = ["humano", "human", "mensch", "soporte", "error", "reclamación", "copyright"]
                 if any(word in user_input.lower() for word in criterios_criticos):
-                    st.session_state.human_takeover = True
-                    # Ejecuta almacenamiento en CSV y dispara Webhook con datos personales
-                    guardar_en_csv_y_alertar(user_input, [m["content"] for m in st.session_state.messages])
+                    st.session_state.trigger_activated = True
+                    st.session_state.last_trigger_word = user_input
                     st.rerun()
 
-                # GENERACIÓN DE CONTENIDO CON MEMORIA REAL
+                # Consumo básico del LLM
                 with st.chat_message("assistant"):
                     historial_api = []
                     for msg in st.session_state.messages:
