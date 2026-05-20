@@ -1,0 +1,21 @@
+# Secrets — NUNCA versionar
+.streamlit/secrets.toml
+
+# Base de datos local generada en runtime
+consultas_criticas.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
