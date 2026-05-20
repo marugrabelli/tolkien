@@ -4,6 +4,8 @@ import requests
 import pandas as pd
 from datetime import datetime
 import os
+import threading
+import re
 
 # 1. Configuración de la interfaz de Streamlit
 st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layout="centered")
@@ -13,12 +15,12 @@ st.subheader("Chatbot für Dr. Rulitos")
 # Botón lateral para reiniciar la sesión de pruebas limpiamente
 if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.messages = []
-    st.session_state.human_takeover = False
     st.session_state.trigger_activated = False
+    st.session_state.form_submitted = False
     st.session_state.last_trigger_word = ""
     st.rerun()
 
-# 2. Gestión de Credenciales Seguras (Validación exacta de tus Secrets)
+# 2. Gestión de Credenciales Seguras
 if "Gemini_API_key" in st.secrets:
     api_key = st.secrets["Gemini_API_key"]
 elif "GEMINI_API_KEY" in st.secrets:
@@ -42,48 +44,56 @@ Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el
 # 4. Inicialización del Estado de la Aplicación
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "human_takeover" not in st.session_state:
-    st.session_state.human_takeover = False
 if "trigger_activated" not in st.session_state:
     st.session_state.trigger_activated = False
+if "form_submitted" not in st.session_state:
+    st.session_state.form_submitted = False
 if "last_trigger_word" not in st.session_state:
     st.session_state.last_trigger_word = ""
 
-# 5. Función de Procesamiento y Persistencia (CSV + Webhook)
-def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_history):
+# 5. Función de Almacenamiento y Notificación Asíncrona (Background Worker)
+def _background_logging_and_alerting(nombre, correo, telefono, palabra_trigger, context_history, webhook_url, csv_path):
     hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    historial_str = str(context_history)
     
-    # A) Persistencia local en Base de Datos CSV
+    # A) Persistencia local automática en Base de Datos CSV
     nueva_fila = {
         "Fecha_Hora": [hora_actual],
         "Nombre": [nombre],
         "Correo": [correo],
         "Telefono": [telefono],
-        "Palabra_Trigger": [palabra_trigger],
-        "Historial_Chat": [str(context_history[-3:])]
+        "Ultima_Consulta": [palabra_trigger],
+        "Historial_Contexto": [historial_str]
     }
     df_nuevo = pd.DataFrame(nueva_fila)
     
-    if os.path.exists(CSV_FILE_PATH):
-        df_nuevo.to_csv(CSV_FILE_PATH, mode='a', header=False, index=False)
+    if os.path.exists(csv_path):
+        df_nuevo.to_csv(csv_path, mode='a', header=False, index=False)
     else:
-        df_nuevo.to_csv(CSV_FILE_PATH, mode='w', header=True, index=False)
+        df_nuevo.to_csv(csv_path, mode='w', header=True, index=False)
         
-    # B) Envío de datos al Webhook de Make
-    if MAKE_WEBHOOK_URL:
+    # B) Envío de datos estructurados para el Webhook de Make
+    if webhook_url:
         payload = {
             "alert_type": "HUMAN_INTERVENTION_REQUIRED",
             "timestamp": hora_actual,
             "user_name": nombre,
             "user_email": correo,
             "user_phone": telefono,
-            "trigger_word": palabra_trigger,
-            "chat_snippet": context_history[-3:] if len(context_history) >= 3 else context_history
+            "last_query": palabra_trigger,
+            "chat_history": context_history[:-1] if len(context_history) > 1 else ["No hay mensajes previos."]
         }
         try:
-            requests.post(MAKE_WEBHOOK_URL, json=payload, timeout=2.0)
+            requests.post(webhook_url, json=payload, timeout=4.0)
         except Exception:
             pass
+
+def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_history):
+    worker = threading.Thread(
+        target=_background_logging_and_alerting,
+        args=(nombre, correo, telefono, palabra_trigger, context_history, MAKE_WEBHOOK_URL, CSV_FILE_PATH)
+    )
+    worker.start()
 
 # 6. Lógica de Ejecución del Chat
 if api_key:
@@ -95,56 +105,57 @@ if api_key:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        # FLUJO HITL ACTIVADO: Solicitud de datos por palabra crítica
-        if st.session_state.trigger_activated:
-            st.warning("⚠️ Se requiere un experto humano / Ein menschlicher Experte wird benötigt.")
+        # ESTADO C: Formulario enviado (Fin del flujo del bot)
+        if st.session_state.form_submitted:
+            st.success("📩 Tus datos han sido registrados con éxito.")
+            st.info("👋 Un asesor humano revisará tu última consulta y se pondrá en contacto directo contigo a la brevedad por teléfono o correo electrónico.")
+
+        # ESTADO B: Palabra crítica detectada -> Formulario de datos de contacto
+        elif st.session_state.trigger_activated:
+            st.warning("⚠️ Servicio automatizado pausado. Se requiere asistencia de un especialista.")
             
-            # Formulario condicional corregido con la función oficial de Streamlit
             with st.form("formulario_contacto_urgente"):
-                st.write("Por favor, déjanos tus datos para que un especialista se contacte directamente contigo:")
+                st.write("Por favor, completá tus datos para recibir atención personalizada de un operador:")
                 form_nombre = st.text_input("Nombre Completo:")
                 form_correo = st.text_input("Correo Electrónico:")
                 form_telefono = st.text_input("Teléfono de Contacto:")
-                form_submit = st.form_submit_button("Solicitar Asistencia Humana")
+                form_submit = st.form_submit_button("Enviar solicitud de contacto")
                 
                 if form_submit:
                     if form_nombre and form_correo and form_telefono:
-                        procesar_alerta_hitl(form_nombre, form_correo, form_telefono, st.session_state.last_trigger_word, [m["content"] for m in st.session_state.messages])
+                        # Extraer todo el historial de strings acumulado hasta el momento
+                        historial_completo = [m["content"] for m in st.session_state.messages]
+                        
+                        # Ejecutar persistencia en CSV y enviar Webhook en segundo plano
+                        procesar_alerta_hitl(form_nombre, form_correo, form_telefono, st.session_state.last_trigger_word, historial_completo)
+                        
                         st.session_state.trigger_activated = False
-                        st.session_state.human_takeover = True
+                        st.session_state.form_submitted = True
                         st.rerun()
                     else:
-                        st.error("Todos los campos son necesarios para procesar tu solicitud de soporte.")
+                        st.error("Todos los campos son obligatorios para procesar la solicitud.")
                         
-        # ESTADO: Esperando respuesta del operador humano
-        elif st.session_state.human_takeover:
-            st.info("💡 Un especialista ha sido notificado. La IA permanece pausada.")
-            with st.expander("🛠️ Panel de Operador Humano (Resolución)", expanded=True):
-                human_response = st.text_area("Escribe la respuesta experta para el usuario:")
-                if st.button("Enviar respuesta y restablecer servicio"):
-                    if human_response:
-                        st.session_state.messages.append({"role": "assistant", "content": f"🧔 [Menschlicher Experte]: {human_response}"})
-                        st.session_state.human_takeover = False
-                        st.rerun()
-                        
-        # ESTADO NORMAL: Chat libre con la IA
+        # ESTADO A: Chat normal libre con la IA
         else:
             if user_input := st.chat_input("Frag mich etwas über Mittelerde..."):
                 with st.chat_message("user"):
                     st.markdown(user_input)
                 st.session_state.messages.append({"role": "user", "content": user_input})
 
-                # Validación de triggers críticos
-                criterios_criticos = ["humano", "human", "mensch", "soporte", "error", "reclamación", "copyright"]
-                if any(word in user_input.lower() for word in criterios_criticos):
+                # Normalización y análisis sintáctico de triggers críticos
+                clean_input = re.sub(r'[^\w\s]', '', user_input.lower().strip())
+                input_words = clean_input.split()
+                
+                criterios_criticos = {"humano", "human", "mensch", "soporte", "error", "reclamacion", "copyright"}
+                if any(word in criterios_criticos for word in input_words):
                     st.session_state.trigger_activated = True
                     st.session_state.last_trigger_word = user_input
                     st.rerun()
 
-                # Consumo básico del LLM con memoria estructurada
+                # Generación estándar del modelo con ventana de memoria optimizada
                 with st.chat_message("assistant"):
                     historial_api = []
-                    for msg in st.session_state.messages:
+                    for msg in st.session_state.messages[-10:]:
                         api_role = "user" if msg["role"] == "user" else "model"
                         historial_api.append({
                             "role": api_role,
