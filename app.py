@@ -54,7 +54,7 @@ if api_key:
                 st.markdown(message["content"])
 
         # Entrada del usuario
-        if user_input := st.chat_input("Pregúntame sobre la Tierra Media..."):
+        if user_input := st.chat_input("Frag mich etwas über Mittelerde..."):
             with st.chat_message("user"):
                 st.markdown(user_input)
             st.session_state.messages.append({"role": "user", "content": user_input})
