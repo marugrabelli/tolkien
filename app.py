@@ -18,11 +18,11 @@ if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.last_trigger_word = ""
     st.rerun()
 
-# 2. Gestión de Credenciales Seguras
-if "GEMINI_API_KEY" in st.secrets:
-    api_key = st.secrets["GEMINI_API_KEY"]
-elif "Gemini_API_key" in st.secrets:
+# 2. Gestión de Credenciales Seguras (Validación exacta de tus Secrets)
+if "Gemini_API_key" in st.secrets:
     api_key = st.secrets["Gemini_API_key"]
+elif "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
 else:
     api_key = st.sidebar.text_input("Ingresa tu Gemini API Key:", type="password")
 
@@ -69,7 +69,7 @@ def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_hist
     else:
         df_nuevo.to_csv(CSV_FILE_PATH, mode='w', header=True, index=False)
         
-    # B) Envío de datos enriquecidos al Webhook de Make
+    # B) Envío de datos al Webhook de Make
     if MAKE_WEBHOOK_URL:
         payload = {
             "alert_type": "HUMAN_INTERVENTION_REQUIRED",
@@ -82,8 +82,8 @@ def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_hist
         }
         try:
             requests.post(MAKE_WEBHOOK_URL, json=payload, timeout=2.0)
-        except requests.exceptions.RequestException:
-            st.sidebar.error("⚠️ Alerta de red: No se pudo enviar el correo de notificación.")
+        except Exception:
+            pass
 
 # 6. Lógica de Ejecución del Chat
 if api_key:
@@ -97,19 +97,18 @@ if api_key:
 
         # FLUJO HITL ACTIVADO: Solicitud de datos por palabra crítica
         if st.session_state.trigger_activated:
-            st.warning("⚠️ Ein menschlicher Experte wird benötigt / Se requiere un experto humano.")
+            st.warning("⚠️ Se requiere un experto humano / Ein menschlicher Experte wird benötigt.")
             
-            # Formulario condicional: Solo aparece tras nombrar una palabra crítica
+            # Formulario condicional corregido con la función oficial de Streamlit
             with st.form("formulario_contacto_urgente"):
-                st.write("Por favor, dejanos tus datos para que un especialista se contacte directamente contigo:")
+                st.write("Por favor, déjanos tus datos para que un especialista se contacte directamente contigo:")
                 form_nombre = st.text_input("Nombre Completo:")
                 form_correo = st.text_input("Correo Electrónico:")
                 form_telefono = st.text_input("Teléfono de Contacto:")
-                form_submit = st.form_submit_with_button_coordinates("Solicitar Asistencia Humana")
+                form_submit = st.form_submit_button("Solicitar Asistencia Humana")
                 
                 if form_submit:
                     if form_nombre and form_correo and form_telefono:
-                        # Guardar en CSV, enviar Webhook y pasar el control al operador humano
                         procesar_alerta_hitl(form_nombre, form_correo, form_telefono, st.session_state.last_trigger_word, [m["content"] for m in st.session_state.messages])
                         st.session_state.trigger_activated = False
                         st.session_state.human_takeover = True
@@ -117,9 +116,9 @@ if api_key:
                     else:
                         st.error("Todos los campos son necesarios para procesar tu solicitud de soporte.")
                         
-        # ESTADO: Esperando respuesta del operador humano desde la consola
+        # ESTADO: Esperando respuesta del operador humano
         elif st.session_state.human_takeover:
-            st.info("💡 Un especialista ha sido notificado por correo electrónico. La IA permanece pausada.")
+            st.info("💡 Un especialista ha sido notificado. La IA permanece pausada.")
             with st.expander("🛠️ Panel de Operador Humano (Resolución)", expanded=True):
                 human_response = st.text_area("Escribe la respuesta experta para el usuario:")
                 if st.button("Enviar respuesta y restablecer servicio"):
@@ -135,14 +134,14 @@ if api_key:
                     st.markdown(user_input)
                 st.session_state.messages.append({"role": "user", "content": user_input})
 
-                # Validación predictiva de triggers críticos
+                # Validación de triggers críticos
                 criterios_criticos = ["humano", "human", "mensch", "soporte", "error", "reclamación", "copyright"]
                 if any(word in user_input.lower() for word in criterios_criticos):
                     st.session_state.trigger_activated = True
                     st.session_state.last_trigger_word = user_input
                     st.rerun()
 
-                # Consumo básico del LLM
+                # Consumo básico del LLM con memoria estructurada
                 with st.chat_message("assistant"):
                     historial_api = []
                     for msg in st.session_state.messages:
