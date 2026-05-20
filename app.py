@@ -15,17 +15,53 @@ st.subheader("Chatbot für Dr. Rulitos")
 
 CSV_FILE_PATH = "consultas_criticas.csv"
 
-# Componente de descarga en la barra lateral para auditoría de base de datos
-if os.path.exists(CSV_FILE_PATH):
-    with open(CSV_FILE_PATH, "rb") as file:
-        st.sidebar.download_button(
-            label="📥 Descargar Base de Datos (CSV)",
-            data=file,
-            file_name="consultas_criticas.csv",
-            mime="text/csv"
-        )
+# --- MEJORA: CREDENCIALES ADMINISTRATIVAS ACTUALIZADAS ---
+ADMIN_USER = "admin"
+ADMIN_PASSWORD = "admin"
 
-# Botón lateral para reiniciar la sesión de pruebas limpiamente
+# Inicializar estado de autenticación de administrador
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
+
+# --- COMPONENTE DE ACCESO ADMINISTRATIVO EN LA BARRA LATERAL ---
+st.sidebar.title("🔐 Panel de Control")
+
+if not st.session_state.admin_authenticated:
+    with st.sidebar.form("login_admin_form"):
+        st.write("Ingreso Administrador")
+        input_user = st.text_input("Usuario:")
+        input_pass = st.text_input("Contraseña:", type="password")
+        login_submit = st.form_submit_button("Iniciar Sesión")
+        
+        if login_submit:
+            if input_user == ADMIN_USER and input_pass == ADMIN_PASSWORD:
+                st.session_state.admin_authenticated = True
+                st.sidebar.success("🔑 Acceso concedido.")
+                st.rerun()
+            else:
+                st.sidebar.error("Credenciales incorrectas.")
+else:
+    st.sidebar.success("🟢 Modo Administrador Activo")
+    
+    # Mostrar el botón de descarga únicamente si está autenticado y el archivo existe
+    if os.path.exists(CSV_FILE_PATH):
+        with open(CSV_FILE_PATH, "rb") as file:
+            st.sidebar.download_button(
+                label="📥 Descargar Base de Datos (CSV)",
+                data=file,
+                file_name="consultas_criticas.csv",
+                mime="text/csv"
+            )
+    else:
+        st.sidebar.info("Aún no se han registrado consultas críticas en la base de datos.")
+        
+    if st.sidebar.button("🚪 Cerrar Sesión Admin"):
+        st.session_state.admin_authenticated = False
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# Botón lateral para reiniciar la sesión de pruebas limpiamente (público)
 if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.messages = []
     st.session_state.trigger_activated = False
@@ -33,7 +69,7 @@ if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.last_trigger_word = ""
     st.rerun()
 
-# 2. Gestión de Credenciales Seguras
+# 2. Gestión de Credenciales Seguras de la API
 if "Gemini_API_key" in st.secrets:
     api_key = st.secrets["Gemini_API_key"]
 elif "GEMINI_API_KEY" in st.secrets:
@@ -53,7 +89,7 @@ Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el
 - Cada interacción DEBE comenzar con: "Mae govannen! Ich bin der Tolkien-Bot. Wie kann ich dir heute im Legendarium helfen?".
 """
 
-# 4. Inicialización del Estado de la Aplicación
+# 4. Inicialización del Estado de la Aplicación (Usuario Final)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "trigger_activated" not in st.session_state:
@@ -107,7 +143,6 @@ def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_hist
 
 # 6. Función de Inferencia Resiliente (Exponential Backoff + Fallback)
 def generar_contenido_resiliente(client, historial_api):
-    # Intentar con el modelo optimizado de producción
     modelos_disponibles = ['gemini-1.5-flash', 'gemini-2.5-flash']
     intentos_maximos = 3
     
@@ -121,10 +156,8 @@ def generar_contenido_resiliente(client, historial_api):
                 )
                 return response.text
             except Exception:
-                # Retraso exponencial antes del siguiente intento (1s, 2s, 4s)
                 time.sleep(2 ** intento)
     
-    # Si todos los intentos y modelos fallan, lanzar excepción controlada
     raise RuntimeError("API_OVERLOADED")
 
 # 7. Lógica de Ejecución del Chat
@@ -185,7 +218,6 @@ if api_key:
                         })
 
                     try:
-                        # Invocación a la función resiliente con manejo de reintentos
                         texto_respuesta = generar_contenido_resiliente(client, historial_api)
                         st.markdown(texto_respuesta)
                         st.session_state.messages.append({"role": "assistant", "content": texto_respuesta})
