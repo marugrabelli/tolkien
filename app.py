@@ -11,7 +11,7 @@ import time
 # 1. Configuración de la interfaz de Streamlit
 st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layout="centered")
 st.title("LOTR 🧙‍♂️")
-st.subheader("Chatbot para Dr. Rulitos")
+st.subheader("Chatbot ")
 
 CSV_FILE_PATH = "consultas_criticas.csv"
 
