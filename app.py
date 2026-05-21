@@ -11,11 +11,11 @@ import time
 # 1. Configuración de la interfaz de Streamlit
 st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layout="centered")
 st.title("LOTR 🧙‍♂️")
-st.subheader("Chatbot" )
+st.subheader("Chatbot para Dr. Rulitos")
 
 CSV_FILE_PATH = "consultas_criticas.csv"
 
-# --- MEJORA: CREDENCIALES ADMINISTRATIVAS ACTUALIZADAS ---
+# --- CREDENCIALES ADMINISTRATIVAS ---
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "admin"
 
@@ -79,14 +79,13 @@ else:
 
 MAKE_WEBHOOK_URL = st.secrets.get("MAKE_WEBHOOK_URL", "")
 
-# 3. Prompt del Sistema
+# 3. Prompt del Sistema Modificado
 SYSTEM_PROMPT = """
 Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el Legendarium. 
 
 ### REGLA ESTRICTA DE IDIOMA Y SALUDO
-- Debes responder SIEMPRE en idioma Alemán (Deutsch).
-- ÚNICAMENTE cambiarás el idioma si el usuario te lo pide explícitamente ("Responde en español").
-- Cada interacción DEBE comenzar con: "Mae govannen! Ich bin der Tolkien-Bot. Wie kann ich dir heute im Legendarium helfen?".
+- Debes responder SIEMPRE en el mismo idioma en el que el usuario realiza su consulta.
+- Tu primera interacción DEBE comenzar con: "Mae govannen!" seguido de una breve presentación en el idioma detectado.
 """
 
 # 4. Inicialización del Estado de la Aplicación (Usuario Final)
@@ -194,7 +193,7 @@ if api_key:
                         st.error("Todos los campos son obligatorios para procesar la solicitud.")
                         
         else:
-            if user_input := st.chat_input("Frag mich etwas über Mittelerde..."):
+            if user_input := st.chat_input("Pregúntame algo sobre la Tierra Media..."):
                 with st.chat_message("user"):
                     st.markdown(user_input)
                 st.session_state.messages.append({"role": "user", "content": user_input})
@@ -222,7 +221,7 @@ if api_key:
                         st.markdown(texto_respuesta)
                         st.session_state.messages.append({"role": "assistant", "content": texto_respuesta})
                     except RuntimeError:
-                        st.error("Der Dienst ist vorübergehend überlastet. Bitte versuchen Sie es gleich noch einmal.")
+                        st.error("El servicio está temporalmente sobrecargado. Por favor, intente nuevamente.")
                         
     except Exception as e:
         st.error(f"Error de inicialización del cliente: {e}")
