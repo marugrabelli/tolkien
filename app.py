@@ -8,22 +8,18 @@ import threading
 import re
 import time
 
-# 1. Configuración de la interfaz de Streamlit
 st.set_page_config(page_title="Tolkien AI Hub", page_icon="🧙‍♂️", layout="centered")
 st.title("LOTR 🧙‍♂️")
 st.subheader("Chatbot ")
 
 CSV_FILE_PATH = "consultas_criticas.csv"
 
-# --- CREDENCIALES ADMINISTRATIVAS ---
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "admin"
 
-# Inicializar estado de autenticación de administrador
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
-# --- COMPONENTE DE ACCESO ADMINISTRATIVO EN LA BARRA LATERAL ---
 st.sidebar.title("🔐 Panel de Control")
 
 if not st.session_state.admin_authenticated:
@@ -43,7 +39,6 @@ if not st.session_state.admin_authenticated:
 else:
     st.sidebar.success("🟢 Modo Administrador Activo")
     
-    # Mostrar el botón de descarga únicamente si está autenticado y el archivo existe
     if os.path.exists(CSV_FILE_PATH):
         with open(CSV_FILE_PATH, "rb") as file:
             st.sidebar.download_button(
@@ -61,7 +56,6 @@ else:
 
 st.sidebar.markdown("---")
 
-# Botón lateral para reiniciar la sesión de pruebas limpiamente (público)
 if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.messages = []
     st.session_state.trigger_activated = False
@@ -69,7 +63,6 @@ if st.sidebar.button("🔄 Reiniciar Conversación"):
     st.session_state.last_trigger_word = ""
     st.rerun()
 
-# 2. Gestión de Credenciales Seguras de la API
 if "Gemini_API_key" in st.secrets:
     api_key = st.secrets["Gemini_API_key"]
 elif "GEMINI_API_KEY" in st.secrets:
@@ -79,7 +72,6 @@ else:
 
 MAKE_WEBHOOK_URL = st.secrets.get("MAKE_WEBHOOK_URL", "")
 
-# 3. Prompt del Sistema Modificado
 SYSTEM_PROMPT = """
 Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el Legendarium. 
 
@@ -89,7 +81,6 @@ Eres J.R.R. Tolkien Bot, un motor de inteligencia artificial especializado en el
 3. PREGUNTA DE CONTINUACIÓN: La última línea de tu respuesta debe ser siempre una pregunta sugerida o abierta para incentivar al usuario a seguir explorando el Legendarium (ejemplo: "¿Quieres que busquemos qué hace Gandalf en este libro?", "¿Te gustaría saber más sobre la forja de los anillos?").
 """
 
-# 4. Inicialización del Estado de la Aplicación (Usuario Final)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "trigger_activated" not in st.session_state:
@@ -99,7 +90,6 @@ if "form_submitted" not in st.session_state:
 if "last_trigger_word" not in st.session_state:
     st.session_state.last_trigger_word = ""
 
-# 5. Función de Almacenamiento y Notificación Asíncrona (Background Worker)
 def _background_logging_and_alerting(nombre, correo, telefono, palabra_trigger, context_history, webhook_url, csv_path):
     hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     historial_str = str(context_history)
@@ -141,7 +131,6 @@ def procesar_alerta_hitl(nombre, correo, telefono, palabra_trigger, context_hist
     )
     worker.start()
 
-# 6. Función de Inferencia Resiliente (Exponential Backoff + Fallback)
 def generar_contenido_resiliente(client, historial_api):
     modelos_disponibles = ['gemini-1.5-flash', 'gemini-2.5-flash']
     intentos_maximos = 3
@@ -160,7 +149,6 @@ def generar_contenido_resiliente(client, historial_api):
     
     raise RuntimeError("API_OVERLOADED")
 
-# 7. Lógica de Ejecución del Chat
 if api_key:
     try:
         client = genai.Client(api_key=api_key)
@@ -202,7 +190,7 @@ if api_key:
                 clean_input = re.sub(r'[^\w\s]', '', user_input.lower().strip())
                 input_words = clean_input.split()
                 
-                criterios_criticos = {"humano", "human", "mensch", "soporte", "error", "reclamacion", "copyright"}
+                criterios_criticos = {"humano", "human", "mensch", "soporte", "error", "reclamacion", "copyright", "ayuda", "asistencia", "agente", "operador", "problema", "queja", "denuncia", "asesor"}
                 if any(word in criterios_criticos for word in input_words):
                     st.session_state.trigger_activated = True
                     st.session_state.last_trigger_word = user_input
