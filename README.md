@@ -134,5 +134,10 @@ streamlit run app.py
 MIT — libre para uso, modificación y distribución con atribución.
 
 ---
+Desarrollado por **Marina Grabelli** — AI Solutions Builder | Informática en Salud  
+[LinkedIn](https://linkedin.com/in/marugrabelli) · [GitHub](https://github.com/marugrabelli)
 
-*Desarrollado como MVP .*
+> Este proyecto nació como evolución técnica de [tasy-suport-bot](https://github.com/marugrabelli/tasy-suport-bot),  
+> un asistente de soporte para implementación de ERP hospitalario (Tasy/FLENI).  
+> La transición de knowledge base en JSON → RAG + HITL fue intencional:  
+> permite escalar a cualquier dominio sin restructurar manualmente el conocimiento.
